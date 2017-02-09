@@ -11,7 +11,7 @@
 使用 composer (推荐)
 
 ```shell
-composer install consatan/weibo_image_uploader
+composer require consatan/weibo_image_uploader
 ```
 
 从 Github 上下载
