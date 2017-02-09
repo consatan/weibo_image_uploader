@@ -1,4 +1,4 @@
-<?php declare(strict_types=1);
+<?php
 
 /*
  * This file is part of the Consatan\Weibo\ImageUploader package.
@@ -18,7 +18,7 @@ namespace Consatan\Weibo\ImageUploader;
  * @return string
  * @link https://github.com/yangyuan/weibo-publisher/blob/520dbc24f775db8caa3b48ea6dbbc838e5142850/weibo.php#L92
  */
-function asn1_length(int $length): string
+function asn1_length($length)
 {
     if ($length <= 0x7f) {
         return chr($length);
@@ -36,7 +36,7 @@ function asn1_length(int $length): string
  * @return string
  * @link https://github.com/yangyuan/weibo-publisher/blob/520dbc24f775db8caa3b48ea6dbbc838e5142850/weibo.php#L99
  */
-function rsa_pkey(string $exponent, string $modulus): string
+function rsa_pkey($exponent, $modulus)
 {
     $pkey = pack('Ca*a*', 0x02, asn1_length(strlen($modulus)), $modulus)
         . pack('Ca*a*', 0x02, asn1_length(strlen($exponent)), $exponent);
@@ -59,7 +59,7 @@ function rsa_pkey(string $exponent, string $modulus): string
  * @return string
  * @link https://github.com/yangyuan/weibo-publisher/blob/520dbc24f775db8caa3b48ea6dbbc838e5142850/weibo.php#L114
  */
-function rsa_encrypt(string $message, string $exponent, string $pubkey): string
+function rsa_encrypt($message, $exponent, $pubkey)
 {
     openssl_public_encrypt($message, $result, rsa_pkey(hex2bin($exponent), hex2bin($pubkey)), OPENSSL_PKCS1_PADDING);
     return $result;

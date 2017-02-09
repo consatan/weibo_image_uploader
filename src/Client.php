@@ -1,4 +1,4 @@
-<?php declare(strict_types=1);
+<?php
 
 /*
  * This file is part of the Consatan\Weibo\ImageUploader package.
@@ -122,9 +122,9 @@ class Client
      * @param bool $https (true) 默认使用 https，设置为 false 使用 http
      * @return self
      */
-    public function setHttps(bool $https = true): self
+    public function setHttps($https = true)
     {
-        $this->protocol = $https ? 'https' : 'http';
+        $this->protocol = (bool)$https ? 'https' : 'http';
         return $this;
     }
 
@@ -141,7 +141,7 @@ class Client
      *     文件读取失败或文件类型不正确或上传失败
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
-    public function upload($file, string $username = '', string $password = '', array $option = []): string
+    public function upload($file, $username = '', $password = '', array $option = [])
     {
         $img = $file;
         if (is_string($file)) {
@@ -155,6 +155,16 @@ class Client
                     . 'or instance of \Psr\Http\Message\StreamInterface, '
                     . gettype($file) . ' given.');
             }
+        }
+
+        if (!is_string($username)) {
+            throw new ImageUploaderException('Argument 2 passed to ' . __METHOD__
+                . '() must be of the type string,' . gettype($username) . ' given.');
+        }
+
+        if (!is_string($password)) {
+            throw new ImageUploaderException('Argument 3 passed to ' . __METHOD__
+                . '() must be of the type string,' . gettype($password) . ' given.');
         }
 
         // 如果有提供用户名密码的话，从缓存中获取登入 cookie
@@ -191,7 +201,7 @@ class Client
             try {
                 return $this->request(
                     'http://picupload.service.weibo.com/interface/pic_upload.php',
-                    function (string $url) {
+                    function ($url) {
                         if ('' !== $url && false !== ($query = parse_url($url, PHP_URL_QUERY))) {
                             parse_str($query, $pid);
                             if (isset($pid['pid'])) {
@@ -261,19 +271,31 @@ class Client
      * @return bool 登入成功与否
      * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException 登入失败或响应异常时
      */
-    public function login(string $username, string $password, bool $cache = true): bool
+    public function login($username, $password, $cache = true)
     {
+        if (!is_string($username)) {
+            throw new ImageUploaderException('Argument 1 passed to ' . __METHOD__
+                . '() must be of the type string,' . gettype($username) . ' given.');
+        }
+
+        if (!is_string($password)) {
+            throw new ImageUploaderException('Argument 2 passed to ' . __METHOD__
+                . '() must be of the type string,' . gettype($password) . ' given.');
+        }
+
         $this->password = $password;
         $this->username = trim($username);
         // 如果使用缓存登入且缓存里有对应用户名的缓存cookie的话，则不需要登入操作
-        if ($cache && ($cookie = $this->cache->getItem(md5($this->username))->get()) instanceof CookieJarInterface) {
+        if ((bool)$cache
+            && ($cookie = $this->cache->getItem(md5($this->username))->get()) instanceof CookieJarInterface
+        ) {
             $this->cookie = $cookie;
             return true;
         }
 
         return $this->request(
             $this->ssoLogin(),
-            function (string $content) {
+            function ($content) {
                 if (1 === preg_match('/"\s*result\s*["\']\s*:\s*true\s*/i', $content)) {
                     // 登入成功，删除旧缓存 cookie
                     $this->cache->deleteItem(md5($this->username));
@@ -307,14 +329,14 @@ class Client
      * @return string 返回登入结果的重定向的 URL
      * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException SSO 登入失败或响应异常时
      */
-    protected function ssoLogin(): string
+    protected function ssoLogin()
     {
         $data = $this->preLogin();
         $msg = "{$data['servertime']}\t{$data['nonce']}\n{$this->password}";
 
         return $this->request(
             'http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)',
-            function (string $content) {
+            function ($content) {
                 if (1 === preg_match('/location\.replace\s*\(\s*[\'"](.*?)[\'"]\s*\)\s*;/', $content, $match)) {
                     // 返回重定向URL
                     return trim($match[1]);
@@ -358,14 +380,14 @@ class Client
      * @return array 返回登入前信息数组
      * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException 请求失败或响应异常时
      */
-    protected function preLogin(): array
+    protected function preLogin()
     {
         return $this->request(
             'http://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su='
                 . urlencode(base64_encode(urlencode($this->username)))
                 . '&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.18)&_='
                 . substr(strval(microtime(true) * 1000), 0, 13),
-            function (string $content) {
+            function ($content) {
                 if (1 === preg_match('/^sinaSSOController.preloginCallBack\s*\((.*)\)\s*$/', $content, $match)) {
                     $json = json_decode($match[1], true);
                     if (isset($json['nonce'], $json['rsakv'], $json['servertime'], $json['pubkey'])) {
@@ -392,7 +414,7 @@ class Client
      * @throws \Consatan\Weibo\ImageUploader\WeiboPuploaderException 请求失败或异常时
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
-    protected function request(string $url, callable $fn, string $method = 'GET', array $option = [])
+    protected function request($url, callable $fn, $method = 'GET', array $option = [])
     {
         if ('' !== $this->ua && !isset($option['headers']['User-Agent'])) {
             $option['headers']['User-Agent'] = $this->ua;

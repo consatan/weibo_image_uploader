@@ -4,20 +4,22 @@
 
 ##### 要求
 
-- PHP 7.0 以上版本
+- PHP 5.5.9 以上版本
 - json 扩展
 - openssl 扩展
 
 使用 composer (推荐)
 
 ```shell
-composer install consatan/weibo_image_uploader
+composer require consatan/weibo_image_uploader:~0.5
 ```
 
 从 Github 上下载
 
 ```shell
 git clone https://consatan.github.com/weibo_image_uploader.git
+cd weibo_image_upload
+git checkout 0.5
 ```
 
 #### 使用示例
