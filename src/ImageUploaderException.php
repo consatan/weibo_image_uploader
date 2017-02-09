@@ -11,6 +11,6 @@
 
 namespace Consatan\Weibo\ImageUploader;
 
-class ImageException extends \Exception
+class ImageUploaderException extends \Exception
 {
 }
