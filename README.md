@@ -20,6 +20,8 @@ composer require consatan/weibo_image_uploader
 git clone https://consatan.github.com/weibo_image_uploader.git
 ```
 
+*PHP ** 5.5, 5.6 ** 版本请使用 [0.5 版本](https://github.com/consatan/weibo_image_uploader/tree/0.5)*
+
 #### 使用示例
 
 ```php
