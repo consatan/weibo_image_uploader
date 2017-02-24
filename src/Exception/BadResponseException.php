@@ -9,8 +9,8 @@
  * file that was distributed with this source code.
  */
 
-namespace Consatan\Weibo\ImageUploader;
+namespace Consatan\Weibo\ImageUploader\Exception;
 
-class ImageUploaderException extends \Exception
+class BadResponseException extends RuntimeException
 {
 }

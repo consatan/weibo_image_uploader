@@ -11,7 +11,6 @@
 
 namespace Consatan\Weibo\ImageUploader;
 
-use \RuntimeException;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\Cookie\CookieJar;
@@ -20,6 +19,11 @@ use GuzzleHttp\Exception\GuzzleException;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Psr\Http\Message\StreamInterface;
+use Consatan\Weibo\ImageUploader\Exception\IOException;
+use Consatan\Weibo\ImageUploader\Exception\RequestException;
+use Consatan\Weibo\ImageUploader\Exception\BadResponseException;
+use Consatan\Weibo\ImageUploader\Exception\RuntimeException;
+use Consatan\Weibo\ImageUploader\Exception\ImageUploaderException;
 
 /**
  * Class Client
@@ -117,15 +121,25 @@ class Client
     }
 
     /**
-     * 设置图床URL协议，支持 http 和 https。
+     * 图床 URL 使用 https 协议
      *
      * @param bool $https (true) 默认使用 https，设置为 false 使用 http
      * @return self
      */
-    public function setHttps(bool $https = true): self
+    public function useHttps(bool $https = true): self
     {
         $this->protocol = $https ? 'https' : 'http';
         return $this;
+    }
+
+    /**
+     * $this->useHttps() 的别名
+     *
+     * @see $this->useHttps()
+     */
+    public function setHttps(bool $https = true): self
+    {
+        return $this->useHttps($https);
     }
 
     /**
@@ -137,8 +151,9 @@ class Client
      * @param string $password ('') 微博密码
      * @param array $option ([]) 具体见 Guzzle request 的请求参数说明
      * @return string 上传成功返回对应的图片 URL
-     * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException
-     *     文件读取失败或文件类型不正确或上传失败
+     * @throws \Consatan\Weibo\ImageUploader\Exception\IOException 读取上传文件失败时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\RuntimeException 参数类型错误时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\BadResponseException 登入失败或上传失败时
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
     public function upload($file, string $username = '', string $password = '', array $option = []): string
@@ -147,11 +162,11 @@ class Client
         if (is_string($file)) {
             // 如果是文件路径，根据文件路径获取文件句柄
             if (file_exists($file) && false === ($img = @fopen($file, 'r'))) {
-                throw new ImageUploaderException("Cannot reading file $file.");
+                throw new IOException("无法读取文件 $file.");
             }
         } else {
             if (!is_resource($file) && !($file instanceof StreamInterface)) {
-                throw new ImageUploaderException('Upload `$file` MUST a type of string or resource '
+                throw new RuntimeException('Upload `$file` MUST a type of string or resource '
                     . 'or instance of \Psr\Http\Message\StreamInterface, '
                     . gettype($file) . ' given.');
             }
@@ -160,7 +175,7 @@ class Client
         // 如果有提供用户名密码的话，从缓存中获取登入 cookie
         if ('' !== $username && '' !== $password && !$this->login($username, $password, true)) {
             // 登入失败
-            throw new ImageUploaderException('Weibo login failed, check your username and password.');
+            throw new BadResponseException('登入失败，请检查用户名或密码是否正确');
         }
 
         $header = [
@@ -212,7 +227,7 @@ class Client
                             }
                         }
 
-                        throw new ImageUploaderException("Upload failed, redirect url: $url");
+                        throw new BadResponseException("上传图片失败, redirect url: $url");
                     },
                     'POST',
                     array_merge($option, [
@@ -242,7 +257,7 @@ class Client
                     // 如果第一次上传失败，尝试重新登入
                     if (!$this->login($username, $password, false)) {
                         // 如果非缓存登入失败，抛出异常
-                        throw new ImageUploaderException('Weibo login failed, check your username and password.');
+                        throw new BadResponseException('登入失败，请检查用户名或密码是否正确');
                     }
                 } else {
                     // 如果重新登入后依然上传失败，抛出异常
@@ -259,7 +274,7 @@ class Client
      * @param string $password 微博密码
      * @param bool $cache (true) 是否使用缓存的cookie进行登入，如果缓存不存在则创建
      * @return bool 登入成功与否
-     * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException 登入失败或响应异常时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\IOException 缓存持久化失败时
      */
     public function login(string $username, string $password, bool $cache = true): bool
     {
@@ -283,16 +298,16 @@ class Client
                     $cache->set($this->cookie);
                     // 缓存持久化
                     if (!$this->cache->save($cache)) {
-                        throw new ImageUploaderException('Persists cookie cache failed.');
+                        throw new IOException('持久化缓存失败');
                     }
                     return true;
                 }
 
                 return false;
-                // 该请求会返回 302 重定向，所以开启 allow_redirects
             },
             'GET',
             [
+                // 该请求会返回 302 重定向，所以开启 allow_redirects
                 'allow_redirects' => true,
                 'headers' => [
                     'Referer' => 'http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)',
@@ -305,7 +320,7 @@ class Client
      * 获取 SSO 登入信息
      *
      * @return string 返回登入结果的重定向的 URL
-     * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException SSO 登入失败或响应异常时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\BadResponseException 响应非预期或要求输入验证码时
      */
     protected function ssoLogin(): string
     {
@@ -317,9 +332,12 @@ class Client
             function (string $content) {
                 if (1 === preg_match('/location\.replace\s*\(\s*[\'"](.*?)[\'"]\s*\)\s*;/', $content, $match)) {
                     // 返回重定向URL
-                    return trim($match[1]);
+                    if (false !== stripos(($url = trim($match[1])), 'retcode=4049')) {
+                        throw new BadResponseException('登入失败，要求输入验证码');
+                    }
+                    return $url;
                 } else {
-                    throw new ImageUploaderException("Login response unexpected: $content");
+                    throw new BadResponseException("登入响应非预期结果: $content");
                 }
             },
             'POST',
@@ -356,7 +374,7 @@ class Client
      * 登入前获取相关信息操作
      *
      * @return array 返回登入前信息数组
-     * @throws \Consatan\Weibo\ImageUploader\ImageUploaderException 请求失败或响应异常时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\BadResponseException 响应非预期时
      */
     protected function preLogin(): array
     {
@@ -371,9 +389,9 @@ class Client
                     if (isset($json['nonce'], $json['rsakv'], $json['servertime'], $json['pubkey'])) {
                         return $json;
                     }
-                    throw new ImageUploaderException("PreLogin get an unexpected response: $match[1]");
+                    throw new BadResponseException("PreLogin 响应非预期结果: $match[1]");
                 } else {
-                    throw new ImageUploaderException("PreLogin get an unexpected response: $content");
+                    throw new BadResponseException("PreLogin 响应非预期结果: $content");
                 }
             },
             'GET',
@@ -389,7 +407,8 @@ class Client
      * @param string $method ('GET') 请求方法
      * @param array $option ([]) 请求参数，具体见 Guzzle request 的请求参数说明
      * @return mixed 返回 `$fn` 回调函数的调用结果
-     * @throws \Consatan\Weibo\ImageUploader\WeiboPuploaderException 请求失败或异常时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\RequestException 请求失败时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\RuntimeException 获取响应内容失败时
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
     protected function request(string $url, callable $fn, string $method = 'GET', array $option = [])
@@ -407,20 +426,18 @@ class Client
             if (200 === ($statusCode = $rsp->getStatusCode())) {
                 try {
                     $content = $rsp->getBody()->getContents();
-                    return $fn($content);
-                } catch (RuntimeException $e) {
-                    throw new ImageUploaderException('Get response content failed. '
-                        . $e->getMessage(), $e->getCode(), $e);
+                } catch (\RuntimeException $e) {
+                    throw new RuntimeException('获取响应内容失败 :' . $e->getMessage());
                 }
+                return $fn($content);
             } elseif (300 <= $statusCode && 303 >= $statusCode) {
                 // 如果禁止重定向，则把重定向 URL 当参数传递
                 return $fn(empty(($rsp = $rsp->getHeader('Location'))) ? '' : $rsp[0]);
             } else {
-                throw new ImageUploaderException("Request failed. HTTP code: $statusCode "
-                    . $rsp->getReasonPhrase());
+                throw new RequestException("请求失败. HTTP code: $statusCode " . $rsp->getReasonPhrase());
             }
         } catch (GuzzleException $e) {
-            throw new ImageUploaderException('Request failed. ' . $e->getMessage(), $e->getCode(), $e);
+            throw new RequestException('请求失败. ' . $e->getMessage(), $e->getCode(), $e);
         }
     }
 }
