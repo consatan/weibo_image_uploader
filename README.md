@@ -32,7 +32,7 @@ require './vendor/autoload.php';
 $weibo = new Consatan\Weibo\ImageUploader\Client();
 
 // 默认返回的是 https 协议的图床 URL，调用该方法返回的是 http 协议的图床 URL
-// $weibo->setHttps(false);
+// $weibo->useHttps(false);
 
 // 上传示例图片
 $url = $weibo->upload('./example.jpg', '微博帐号', '微博帐号密码');
@@ -74,7 +74,7 @@ $url4 = $weibo->upload(\GuzzleHttp\Psr7\stream_for(file_get_contents('./example.
 ]);
 ```
 
-所有的异常都通过 `\Consatan\Weibo\ImageUploader\ImageUploaderException` 抛出，一般是请求失败或响应异常时才会抛出。
+抛出的所有异常都可通过 `\Consatan\Weibo\ImageUploader\Exception\ImageUploaderException` 接口捕获， 实现该接口的异常都在 [src/Exception](https://github.com/consatan/weibo_image_uploader/tree/master/src/Exception) 目录下。
 
 #### Todo
 
