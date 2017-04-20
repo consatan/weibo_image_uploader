@@ -47,6 +47,65 @@ use Consatan\Weibo\ImageUploader\Exception\ImageUploaderException;
  */
 class Client
 {
+    const IMAGE_SIZE_LARGE = 'large';
+
+    const IMAGE_SIZE_SMALL = 'small';
+
+    const IMAGE_SIZE_SQUARE = 'square';
+
+    const IMAGE_SIZE_MIDDLE = 'bmiddle';
+
+    const IMAGE_SIZE_ORIGNAL = 'large';
+
+    const IMAGE_SIZE_BMIDDLE = 'bmiddle';
+
+    const IMAGE_SIZE_THUMBNAIL = 'thumbnail';
+
+    const IMAGE_SIZE_THUMB180 = 'thumb180';
+
+    const IMAGE_SIZE_MW690 = 'mw690';
+
+    const IMAGE_SIZE_MW1024 = 'mw1024';
+
+    /**
+     * 水印位置，图片右下角位置
+     *
+     * @var int
+     */
+    const MARKPOS_BOTTOM_RIGHT = 1;
+
+    /**
+     * 水印位置，图片底部中间位置
+     *
+     * @var int
+     */
+    const MARKPOS_BOTTOM_CENTER = 2;
+
+    /**
+     * 水印位置，图片中心位置
+     *
+     * @var int
+     */
+    const MARKPOS_CENTER = 3;
+
+    /**
+     * 允许的图片尺寸
+     *
+     * @var string[]
+     */
+    public static $imageSize = [
+        'mw690' => 'mw690',
+        'large' => 'large',
+        'small' => 'small',
+        'square' => 'square',
+        'mw1024' => 'mw1024',
+        'middle' => 'bmiddle',
+        'orignal' => 'large',
+        'bmiddle' => 'bmiddle',
+        'thumb180' => 'thumb180',
+        'thumbnail' => 'thumbnail',
+    ];
+
     /**
      * http 实例
      *
@@ -97,6 +156,41 @@ class Client
     protected $password = '';
 
     /**
+     * 是否添加水印
+     *
+     * @var bool
+     */
+    protected $mark = false;
+
+    /**
+     * 水印位置
+     *
+     * @var int
+     */
+    protected $markpos = self::MARKPOS_BOTTOM_RIGHT;
+
+    /**
+     * 微博暱称
+     *
+     * @var string
+     */
+    protected $nickname = '';
+
+    /**
+     * 要获取的图片尺寸
+     *
+     * @var string[]
+     */
+    protected $imageSizes = [self::IMAGE_SIZE_LARGE];
+
+    /**
+     * 微博暱称缓存，由于微博暱称允许更改，所以该缓存不持久化
+     *
+     * @var array
+     */
+    protected $nicknames = [];
+
+    /**
      * @param \Psr\Cache\CacheItemPoolInterface $cache (null) Cache 实例
      *     未设置默认使用文件缓存，保存在项目根路径的 cache/weibo 目录。
      * @param \GuzzleHttp\ClientInterface $http (null) Guzzle client 实例
@@ -123,6 +217,150 @@ class Client
         } else {
             $this->http = new HttpClient(['headers' => ['User-Agent' => $ua]]);
         }
+    }
+
+    public static function getImageUrl(string $pid, string $size = self::IMAGE_SIZE_ORIGNAL, bool $https = true)
+    {
+        $pid = trim($pid);
+        $size = strtolower($size);
+        $size = isset(self::$imageSize[$size]) ? $size : self::IMAGE_SIZE_ORIGNAL;
+
+        // 传递 pid
+        if (preg_match('/^[a-zA-Z0-9]{32}$/', $pid) === 1) {
+            return ($https ? 'https' : 'http') . '://' . ($https ? 'ws' : 'ww')
+                . ((crc32($pid) & 3) + 1) . ".sinaimg.cn/" . self::$imageSize[$size]
+                . "/$pid." . ($pid[21] === 'g' ? 'gif' : 'jpg');
+        }
+
+        // 传递 url
+        $url = $pid;
+        $imgUrl = preg_replace_callback('/^(https?:\/\/[a-z]{2}\d\.sinaimg\.cn\/)'
+            . '(large|bmiddle|mw1024|mw690|small|square|thumb180|thumbnail)'
+            . '(\/[a-z0-9]{32}\.(jpg|gif))$/i', function ($match) use ($size) {
+                return $match[1] . self::$imageSize[$size] . $match[3];
+            }, $url, -1, $count);
+
+        if ($count === 0) {
+            throw new RuntimeException('Invalid URL: ' . $url);
+        }
+        return $imgUrl;
+    }
+
+    /**
+     * 设置(水印中的)微博用户暱称，当前版本允许自定义水印微博用户暱称，
+     * 以后版本该功能可能会被和谐。
+     *
+     * @param string $nickname ('') 微博用户暱称
+     * @return self
+     */
+    public function setNickname(string $nickname = '')
+    {
+        $nickname = trim($nickname);
+        if ($nickname === '') {
+            if (isset($this->nicknames[$this->username])) {
+                $nickname = $this->nicknames[$this->username];
+            } else {
+                $this->request('http://weibo.com/minipublish', function (string $content) use (&$nickname) {
+                    if (preg_match('/\$CONFIG\[\'nick\'\]\s*=\s*\'(.*)\'\s*;/m', $content, $match) === 1) {
+                        $nickname = trim($match[1]);
+                        $this->nicknames[$this->username] = $nickname;
+                    }
+                });
+            }
+        }
+        $this->nickname = $nickname;
+        return $this;
+    }
+
+    /**
+     * 获取微博用户暱称
+     *
+     * @return string 微博用户暱称
+     */
+    public function getNickname()
+    {
+        return $this->nickname;
+    }
+
+    /**
+     * 设置水印开关
+     *
+     * @param bool $mark true 开启水印，false 关闭水印
+     * @return self
+     */
+    public function setMark(bool $mark)
+    {
+        $this->mark = $mark;
+        return $this;
+    }
+
+    /**
+     * 获取水印开关
+     *
+     * @return bool
+     */
+    public function getMark()
+    {
+        return $this->mark;
+    }
+
+    /**
+     * 设置水印位置
+     *
+     * @param int $pos 水印位置
+     * @return self
+     */
+    public function setMarkPos(int $pos)
+    {
+        $this->markpos = $pos >= 1 && $pos <= 3 ? $pos : self::MARKPOS_BOTTOM_RIGHT;
+        return $this;
+    }
+
+    /**
+     * 获取水印位置
+     *
+     * @return int
+     */
+    public function getMarkPos()
+    {
+        return $this->markpos;
+    }
+
+    /**
+     * 设置图片尺寸
+     *
+     * @param string[]|string 图片尺寸
+     * @return self
+     */
+    public function setImageSizes($sizes)
+    {
+        if (is_string($sizes)) {
+            $sizes = [$sizes];
+        }
+
+        $this->imageSizes = [];
+        if (is_array($sizes)) {
+            foreach ($sizes as $size) {
+                if (isset(self::imageSize[$size])) {
+                    $this->imageSizes[] = $size;
+                }
+            }
+        }
+
+        if (sizeof($this->imageSizes) === 0) {
+            $this->imageSizes = [self::IMAGE_SIZE_LARGE];
+        }
+        return $this;
+    }
+
+    /**
+     * 获取图片尺寸
+     *
+     * @return array
+     */
+    public function getImageSizes()
+    {
+        return $this->imageSizes;
     }
 
     /**
@@ -155,9 +393,22 @@ class Client
      *     或者实现了 \Psr\Http\Message\StreamInterface 接口的实体类。
      * @param string $username ('') 微博帐号
      * @param string $password ('') 微博密码
+     * @param array $config ([]) 图片上传参数，该参数和 $option 参数位置可调换
+     *     - mark: (bool, default=false) 图片水印开关
+     *     - markpos: (int, default=1) 图片水印位置，仅开启图片水印时有效
+     *         1: 图片右下角
+     *         2: 图片底部居中位置
+     *         3: 图片垂直和水平居中位置
+     *     - nickname: (string) 水印上的暱称，默认使用上传的微博帐号暱称，当前该参数
+     *         允许自定义暱称，但不保证以后版本中会被微博屏蔽掉。仅开启图片水印时有效
+     *     - size: (string[], default=['large']) 获取不同尺寸的图片链接。当仅需要一个
+     *         尺寸时，返回图片 URL；当需要多个尺寸时，返回索引数组，key 为尺寸，
+     *         value 为对应尺寸的图片 URL
      * @param array $option ([]) 具体见 Guzzle request 的请求参数说明
      *
-     * @return string 上传成功返回对应的图片 URL，上传失败返回空字符串
+     * @return string|array 上传成功返回对应的图片 URL，上传失败返回空字符串。
+     *     当 $config['size'] 需要多个尺寸的图片 URL 时，返回索引数组，key 为尺寸，
+     *     value 为对应尺寸的图片 URL，当上传失败时返回空数组。
      *
      * @throws \Consatan\Weibo\ImageUploader\Exception\IOException 读取上传文件失败时
      * @throws \Consatan\Weibo\ImageUploader\Exception\RuntimeException 参数类型错误时
@@ -166,8 +417,13 @@ class Client
      *
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
-    public function upload($file, string $username = '', string $password = '', array $option = []): string
-    {
+    public function upload(
+        $file,
+        string $username = '',
+        string $password = '',
+        array $config = [],
+        array $option = []
+    ) {
         $img = $file;
         $imgUrl = '';
 
@@ -195,6 +451,21 @@ class Client
             'Accept' => 'text/html, application/xhtml+xml, image/jxr, */*',
         ];
 
+        // 允许 $config 和 $option 参数位置调换
+        if (!empty($config) && !isset($config['mark']) && !isset($config['markpos'])
+            && !isset($config['nickname']) && !isset($config['size'])) {
+            $tmp = $config;
+            $config = $option;
+            $option = $tmp;
+        }
+
+        if (!empty($option) && (isset($option['mark']) || isset($option['markpos'])
+            || isset($option['nickname']) || isset($option['size']))) {
+            $tmp = $config;
+            $config = $option;
+            $option = $tmp;
+        }
+
         if (!empty($option)) {
             if (isset($option['headers'])) {
                 foreach ($option['headers'] as $key => $val) {
@@ -214,7 +485,17 @@ class Client
 
         // 创建重试中间件
         $stack = HandlerStack::create(new CurlHandler());
-        $stack->push(Middleware::retry(function ($retries, $req, $rsp, $error) use (&$imgUrl, $username, $password) {
+        $stack->push(Middleware::retry(function (
+            $retries,
+            $req,
+            $rsp,
+            $error
+        ) use (
+            &$imgUrl,
+            &$config,
+            $username,
+            $password
+        ) {
             $imgUrl = '';
             if ($rsp !== null) {
                 $statusCode = $rsp->getStatusCode();
@@ -235,9 +516,7 @@ class Client
                              * cdn 编号都能访问到同一资源，所以根据 pid 来判断 cdn 编号
                              * 当前实际上没啥意义了，有些实现甚至直接写死 cdn 编号
                              */
-                            $imgUrl = $this->protocol . '://' . ($this->protocol === 'http' ? 'ww' : 'ws')
-                                . ((crc32($pid) & 3) + 1)
-                                . ".sinaimg.cn/large/$pid." . ($pid[21] === 'g' ? 'gif' : 'jpg');
+                            $imgUrl = self::getImageUrl($pid, $config['size'][0], $this->protocol === 'https');
 
                             // 停止重试
                             return false;
@@ -262,15 +541,26 @@ class Client
             }
         }));
 
+        $config = array_merge([
+            'mark' => $this->mark,
+            'markpos' => $this->markpos,
+            'nickname' => $this->nickname,
+            'size' => $this->imageSizes,
+        ], $config);
+        if (is_string($config['size'])) {
+            $config['size'] = [$config['size']];
+        }
+
         $option = array_merge($option, [
             'handler' => $stack,
             'query' => [
+                'ori' => '1',
                 'marks' => '1',
                 'app' => 'miniblog',
                 's' => 'rdxt',
-                'markpos' => '',
+                'markpos' => $config['mark'] ? $config['markpos'] : '',
                 'logo' => '',
-                'nick' => '0',
+                'nick' => '@' . $config['nickname'],
                 'url' => '',
                 'cb' => 'http://weibo.com/aj/static/upimgback.html?_wv=5&callback=STK_ijax_'
                     . substr(strval(microtime(true) * 1000), 0, 13) . '1',
@@ -293,7 +583,16 @@ class Client
             throw new RequestException('请求失败. ' . $e->getMessage(), $e->getCode(), $e);
         }
 
-        return $imgUrl;
+        if (sizeof($config['size']) > 1) {
+            $imgs = [];
+
+            foreach ($config['size'] as $size) {
+                $imgs[$size] = self::getImageUrl($imgUrl, $size);
+            }
+            return $imgs;
+        } else {
+            return $imgUrl;
+        }
     }
 
     /**
@@ -314,6 +613,7 @@ class Client
         // 如果使用缓存登入且缓存里有对应用户名的缓存cookie的话，则不需要登入操作
         if ($cache && ($cookie = $this->cache->getItem(md5($this->username))->get()) instanceof CookieJarInterface) {
             $this->cookie = $cookie;
+            $this->setNickname();
             return true;
         }
 
@@ -331,6 +631,7 @@ class Client
                     if (!$this->cache->save($cache)) {
                         throw new IOException('持久化缓存失败');
                     }
+                    $this->setNickname();
                     return true;
                 }
 

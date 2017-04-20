@@ -73,14 +73,66 @@ $url4 = $weibo->upload(\GuzzleHttp\Psr7\stream_for(file_get_contents('./example.
     'proxy' => 'http://192.168.1.250:9080'
 ]);
 ```
+##### 水印选项
+```php
+// 开启水印
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', ['mark' => true]);
+
+// 水印位置
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', [
+    'mark' => true,
+    'markpos' => Consatan\Weibo\ImageUploader\Client::MARKPOS_BOTTOM_CENTER,
+]);
+
+// 可使用任意的水印暱称（也许以后的版本就会和谐了）
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', ['mark' => true, 'nickname' => '任意暱称']);
+```
+
+##### 获取其他尺寸的图片链接
+```php
+// 默认使用 large (原始)尺寸，此处使用 thumbnail (缩略图) 尺寸
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', [
+    'size' => Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_THUMBNAIL
+]);
+
+// 获取多个尺寸的图片链接
+$urls = $weibo->upload('./example.jpg', '微博帐号', '密码', ['size' => [
+    Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_SMALL,
+    Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_LARGE,
+    Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_THUMBNAIL,
+]]);
+// 返回
+// array (
+//   'small' => 'https://ws2.sinaimg.cn/small/0068M0xKgy1fetd4l7x6vj30bo0bximx.jpg',
+//   'large' => 'https://ws2.sinaimg.cn/large/0068M0xKgy1fetd4l7x6vj30bo0bximx.jpg',
+//   'thumbnail' => 'https://ws2.sinaimg.cn/thumbnail/0068M0xKgy1fetd4l7x6vj30bo0bximx.jpg',
+// )
+```
+
+##### upload 方法中，$config 和 $option 参数位置可调换
+```php
+// 以下 2 种传参顺序最终效果是一致的
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', [
+    'size' => Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_THUMBNAIL
+], [
+    'proxy' => 'http://192.168.1.250:9080'
+]);
+
+$url = $weibo->upload('./example.jpg', '微博帐号', '密码', [
+    'proxy' => 'http://192.168.1.250:9080'
+], [
+    'size' => Consatan\Weibo\ImageUploader\Client::IMAGE_SIZE_THUMBNAIL
+]);
+```
 
 抛出的所有异常都可通过 `\Consatan\Weibo\ImageUploader\Exception\ImageUploaderException` 接口捕获， 实现该接口的异常都在 [src/Exception](https://github.com/consatan/weibo_image_uploader/tree/master/src/Exception) 目录下。
 
 #### Todo
 
 - [ ] 单元测试
-- [ ] 获取其他规格的图片 URL（如，small, thumbnail...）
-- [ ] 添加水印选项
+- [x] 获取其他规格的图片 URL（如，small, thumbnail...）
+- [x] 添加水印选项
+- [ ] 实现验证码输入(用户输入)
 
 #### 参考
 
