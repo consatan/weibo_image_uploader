@@ -32,17 +32,31 @@ use Consatan\Weibo\ImageUploader\Exception\ImageUploaderException;
 /**
  * Class Client
  *
+ * @static string getImageUrl(
+ *     string $pid,
+ *     string $size = self::IMAGE_SIZE_ORIGNAL,
+ *     bool $https = true
+ * )
  * @method self __construct(
  *     \Psr\Cache\CacheItemPoolInterface $cache = null,
  *     \GuzzleHttp\ClientInterface $http = null
  * )
+ * @method self setNickname(string $nickname = '')
+ * @method string getNickname()
+ * @method self setMark(bool $mark)
+ * @method bool getMark()
+ * @method self setMarkPos(int $pos)
+ * @method int getMarkPos()
+ * @method self setImageSizes(string|string[] $sizes)
+ * @method string[] getImageSizes()
  * @method self useHttps(bool $https = true)
  * @method self setHttps(bool $https = true)
- * @method bool login(string $username, string $password, bool $cache = true)
+ * @method bool login(string $username, string $password, bool|string $cache = true)
  * @method string upload(
  *     string|resource|\Psr\Http\Message\StreamInterface $file,
  *     string $username = '',
  *     string $password = '',
+ *     array $config = [],
  *     array $option = []
  * )
  */
@@ -220,6 +234,19 @@ class Client
         }
     }
 
+    /**
+     * 获取图片链接
+     *
+     * @param string $pid 微博图床pid，或者微博图床链接。传递的是链接的话，
+     *     仅是将链接的尺寸更改为目标尺寸而已。
+     * @param string $size (self::IMAGE_SIZE_LARGE) 图片尺寸
+     * @param bool $https (true) 是否使用 https 协议
+     *
+     * @return string 图片链接
+     *
+     * @throws Consatan\Weibo\ImageUploader\Exception\RuntimeException
+     *     当 $pid 既不是 pid 也不是合法的微博图床链接时
+     */
     public static function getImageUrl(string $pid, string $size = self::IMAGE_SIZE_ORIGNAL, bool $https = true)
     {
         $pid = trim($pid);
@@ -287,6 +314,7 @@ class Client
      * 设置水印开关
      *
      * @param bool $mark true 开启水印，false 关闭水印
+     *
      * @return self
      */
     public function setMark(bool $mark)
@@ -309,6 +337,7 @@ class Client
      * 设置水印位置
      *
      * @param int $pos 水印位置
+     *
      * @return self
      */
     public function setMarkPos(int $pos)
@@ -331,6 +360,7 @@ class Client
      * 设置图片尺寸
      *
      * @param string[]|string 图片尺寸
+     *
      * @return self
      */
     public function setImageSizes($sizes)
