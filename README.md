@@ -45,6 +45,8 @@ echo $url . PHP_EOL;
 
 构造函数可传递 `\Psr\Cache\CacheItemPoolInterface` 和 `\GuzzleHttp\ClientInterface`，默认情况下使用文件缓存 cookie 信息，存储在项目根目录的 cache/weibo 文件夹下，缓存的 `key` 使用 `md5` 后的微博用户名，可根据需求将缓存保存到其他适配器中，具体参见 `\Symfony\Cache\Adapter`。
 
+> 关于验证码问题([issue #3](https://github.com/consatan/weibo_image_uploader/issues/3))，可查看 [example/cli.php](https://github.com/consatan/weibo_image_uploader/tree/master/example/cli.php) 示例代码
+
 `Client::upload` 方法的第四个参数允许传递 `Guzzle request` 的参数数组，具体见 [Request Options](http://docs.guzzlephp.org/en/latest/request-options.html)，通过该参数可实现切换代理等操作，如下例：
 
 ```php
@@ -73,6 +75,7 @@ $url4 = $weibo->upload(\GuzzleHttp\Psr7\stream_for(file_get_contents('./example.
     'proxy' => 'http://192.168.1.250:9080'
 ]);
 ```
+
 ##### 水印选项
 ```php
 // 开启水印
@@ -132,7 +135,7 @@ $url = $weibo->upload('./example.jpg', '微博帐号', '密码', [
 - [ ] 单元测试
 - [x] 获取其他规格的图片 URL（如，small, thumbnail...）
 - [x] 添加水印选项
-- [ ] 实现验证码输入(用户输入)
+- [x] 实现验证码输入(用户输入)
 
 #### 参考
 

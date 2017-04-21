@@ -26,6 +26,7 @@ use Consatan\Weibo\ImageUploader\Exception\IOException;
 use Consatan\Weibo\ImageUploader\Exception\RequestException;
 use Consatan\Weibo\ImageUploader\Exception\BadResponseException;
 use Consatan\Weibo\ImageUploader\Exception\RuntimeException;
+use Consatan\Weibo\ImageUploader\Exception\RequirePinException;
 use Consatan\Weibo\ImageUploader\Exception\ImageUploaderException;
 
 /**
@@ -600,64 +601,106 @@ class Client
      *
      * @param string $username 微博帐号，微博帐号的 md5 值将作为缓存 key
      * @param string $password 微博密码
-     * @param bool $cache (true) 是否使用缓存的cookie进行登入，如果缓存不存在则创建
+     * @param bool|string $cache (true) 是否使用缓存的cookie进行登入，如果缓存不存在则创建；
+     *     当传入的是字符串时，该参数为验证码，不使用缓存登入。
      *
      * @return bool 登入成功与否
      *
+     * @throws \Consatan\Weibo\ImageUploader\Exception\RequirePinException 需要输入验证码时，
+     *     Exception message 为验证码图片的本地路径
      * @throws \Consatan\Weibo\ImageUploader\Exception\IOException 缓存持久化失败时
      */
-    public function login(string $username, string $password, bool $cache = true): bool
+    public function login(string $username, string $password, $cache = true): bool
     {
         $this->password = $password;
         $this->username = trim($username);
+        $cacheKey = md5($this->username);
+
+        if (is_string($cache)) {
+            $pin = $cache;
+            $cache = false;
+        } else {
+            $pin = '';
+            $cache = (bool)$cache;
+        }
+
         // 如果使用缓存登入且缓存里有对应用户名的缓存cookie的话，则不需要登入操作
-        if ($cache && ($cookie = $this->cache->getItem(md5($this->username))->get()) instanceof CookieJarInterface) {
+        if ($cache && ($cookie = $this->cache->getItem($cacheKey)->get()) instanceof CookieJarInterface) {
             $this->cookie = $cookie;
             $this->setNickname();
             return true;
         }
 
-        return $this->request(
-            $this->ssoLogin(),
-            function (string $content) {
-                if (1 === preg_match('/"\s*result\s*["\']\s*:\s*true\s*/i', $content)) {
-                    // 登入成功，删除旧缓存 cookie
-                    $this->cache->deleteItem(md5($this->username));
-                    // 新建 或 获取 CacheItemInterface 实例
-                    $cache = $this->cache->getItem(md5($this->username));
-                    // 设置 cookie 信息
-                    $cache->set($this->cookie);
-                    // 缓存持久化
-                    if (!$this->cache->save($cache)) {
-                        throw new IOException('持久化缓存失败');
-                    }
-                    $this->setNickname();
-                    return true;
-                }
+        return $this->request($this->ssoLogin($pin), function (string $content) use ($cacheKey) {
+            if (1 === preg_match('/"\s*result\s*["\']\s*:\s*true\s*/i', $content)) {
+                $this->persistenceCache($cacheKey, $this->cookie);
+                $this->setNickname();
+                return true;
+            }
 
-                return false;
-            },
-            'GET',
-            [
-                // 该请求会返回 302 重定向，所以开启 allow_redirects
-                'allow_redirects' => true,
-                'headers' => [
-                    'Referer' => 'http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)',
-                ],
-            ]
-        );
+            return false;
+        }, [
+            // 该请求会返回 302 重定向，所以开启 allow_redirects
+            'allow_redirects' => true,
+            'headers' => [
+                'Referer' => 'http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)',
+            ],
+        ]);
     }
 
     /**
      * 获取 SSO 登入信息
      *
+     * @param string $pin ('') 验证码
+     *
      * @return string 返回登入结果的重定向的 URL
      *
-     * @throws \Consatan\Weibo\ImageUploader\Exception\BadResponseException 响应非预期或要求输入验证码时
+     * @throws \Consatan\Weibo\ImageUploader\Exception\RequirePinException 需要输入验证码时，
+     *     Exception message 为验证码图片的本地路径
+     * @throws \Consatan\Weibo\ImageUploader\Exception\BadResponseException 响应非预期或未输入验证码时
      */
-    protected function ssoLogin(): string
+    protected function ssoLogin(string $pin = ''): string
     {
-        $data = $this->preLogin();
+        $params = [];
+        $pin = trim($pin);
+        $cacheKey = md5($this->username) . '_preLogin';
+        if ($this->cache->hasItem($cacheKey)) {
+            // 从缓存中获取上次 preLogin 的数据
+            $data = $this->cache->getItem($cacheKey)->get();
+            if (is_array($data) && isset(
+                $data['pcid'],
+                $data['servertime'],
+                $data['nonce'],
+                $data['pubkey'],
+                $data['rsakv'],
+                $data['pinImgPath']
+            )) {
+                if ($pin !== '') {
+                    $params['pcid'] = $data['pcid'];
+                    $params['door'] = $pin;
+                } else {
+                    if (file_exists($data['pinImgPath'])) {
+                        // 如果已经缓存过验证码图片，就不需要重复获取
+                        throw new RequirePinException($data['pinImgPath']);
+                    }
+                }
+                // 删除本地验证码图片
+                @unlink($data['pinImgPath']);
+            }
+            // 删除 prelogin 缓存，如果提供了验证码，则验证码都是一次性的，
+            // 不管验证成功与否，都没有必要继续缓存；如果没提供验证码，则会
+            // 抛出 RequirePinException 异常，也就不会执行删除缓存的代码。
+            $this->cache->deleteItem($cacheKey);
+        }
+
+        if (empty($params)) {
+            $data = $this->preLogin();
+            if (isset($data['showpin']) && (int)$data['showpin']) {
+                // 要求输入验证码
+                throw new RequirePinException($this->getPin($data));
+            }
+        }
+
         $msg = "{$data['servertime']}\t{$data['nonce']}\n{$this->password}";
 
         return $this->request(
@@ -673,10 +716,9 @@ class Client
                     throw new BadResponseException("登入响应非预期结果: $content");
                 }
             },
-            'POST',
             [
                 'headers' => ['Referer' => 'http://weibo.com/login.php'],
-                'form_params' => [
+                'form_params' => $params + [
                     'entry' => 'weibo',
                     'gateway' => '1',
                     'from' => '',
@@ -694,12 +736,15 @@ class Client
                     'sp' => bin2hex(rsa_encrypt($msg, '010001', $data['pubkey'])),
                     'sr' => '1440*900',
                     'encoding' => 'UTF-8',
-                    'prelt' => '287',
+                    // 该参数为加载 preLogin 页面到提交登入表单的间隔时间
+                    // 此处使用 float 是为了兼容 32 位系统
+                    'prelt' => (int)round((microtime(true) - $data['preloginTime']) * 1000),
                     'url' => 'http://weibo.com/ajaxlogin.php?'
                         . 'framelogin=1&callback=parent.sinaSSOController.feedBackUrlCallBack',
                     'returntype' => 'META'
                 ],
-            ]
+            ],
+            'POST'
         );
     }
 
@@ -712,15 +757,18 @@ class Client
      */
     protected function preLogin(): array
     {
+        $ts = microtime(true);
         return $this->request(
             'http://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su='
                 . urlencode(base64_encode(urlencode($this->username)))
                 . '&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.18)&_='
-                . substr(strval(microtime(true) * 1000), 0, 13),
-            function (string $content) {
+                . substr(strval($ts * 1000), 0, 13),
+            function (string $content) use ($ts) {
                 if (1 === preg_match('/^sinaSSOController.preloginCallBack\s*\((.*)\)\s*$/', $content, $match)) {
                     $json = json_decode($match[1], true);
                     if (isset($json['nonce'], $json['rsakv'], $json['servertime'], $json['pubkey'])) {
+                        // 记录访问时间戳，登入时 prelt 参数需要用到
+                        $json['preloginTime'] = $ts;
                         return $json;
                     }
                     throw new BadResponseException("PreLogin 响应非预期结果: $match[1]");
@@ -728,9 +776,44 @@ class Client
                     throw new BadResponseException("PreLogin 响应非预期结果: $content");
                 }
             },
-            'GET',
             ['headers' => ['Referer' => 'http://weibo.com/login.php']]
         );
+    }
+
+    /**
+     * 获取验证码图片
+     *
+     * @param string $pcid  preLogin 阶段获取到的 pcid
+     *
+     * @return string  验证码图片的本地路径
+     *
+     * @throws \Consatan\Weibo\ImageUploader\Exception\IOException 创建或保存验证码图片失败时，
+     *     或持久化缓存失败时
+     */
+    protected function getPin(array $data): string
+    {
+        $url = 'http://login.sina.com.cn/cgi/pin.php?r=' . rand(100000000, 99999999) . '&s=0&p=' . $data['pcid'];
+        $this->request($url, function ($content) use (&$data) {
+            if (false === ($path = tempnam(sys_get_temp_dir(), 'WEIBO'))) {
+                throw new IOException('创建验证码图片文件失败');
+            }
+
+            if (false === file_put_contents($path, $content)) {
+                throw new IOException('保存验证码图片失败');
+            }
+            $data['pinImgPath'] = $path;
+        }, ['headers' => [
+            'Accept' => 'image/png, image/svg+xml, image/*;q=0.8, */*;q=0.5',
+            'Referer' => 'http://www.weibo.com/login.php',
+        ]]);
+
+        $cacheKey = md5($this->username);
+        // 持久化 preLogin 获取的数据
+        $this->persistenceCache($cacheKey . '_preLogin', $data);
+        // 持久化 cookie 保存当前状态
+        $this->persistenceCache($cacheKey, $this->cookie);
+
+        return $data['pinImgPath'];
     }
 
     /**
@@ -738,8 +821,8 @@ class Client
      *
      * @param string $url 请求 URL
      * @param callable $fn 回调函数
-     * @param string $method ('GET') 请求方法
      * @param array $option ([]) 请求参数，具体见 Guzzle request 的请求参数说明
+     * @param string $method ('GET') 请求方法
      *
      * @return mixed 返回 `$fn` 回调函数的调用结果
      *
@@ -748,7 +831,7 @@ class Client
      *
      * @see http://docs.guzzlephp.org/en/latest/request-options.html
      */
-    protected function request(string $url, callable $fn, string $method = 'GET', array $option = [])
+    protected function request(string $url, callable $fn, array $option = [], string $method = 'GET')
     {
         $this->applyOption($option);
 
@@ -788,6 +871,29 @@ class Client
 
         if (!isset($option['cookies'])) {
             $option['cookies'] = $this->cookie;
+        }
+    }
+
+    /**
+     * 持久化缓存
+     *
+     * @param string $key 缓存key
+     * @param mixed $value 缓存数据
+     *
+     * @return void
+     *
+     * @throws Consatan\Weibo\ImageUploader\Exception\IOException 持久化失败时
+     */
+    private function persistenceCache(string $key, $value)
+    {
+        $this->cache->deleteItem($key);
+        // 新建 或 获取 CacheItemInterface 实例
+        $cache = $this->cache->getItem($key);
+        // 设置 cookie 信息
+        $cache->set($value);
+        // 缓存持久化
+        if (!$this->cache->save($cache)) {
+            throw new IOException('持久化缓存失败');
         }
     }
 }
