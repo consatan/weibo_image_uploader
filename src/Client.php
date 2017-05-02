@@ -516,17 +516,7 @@ class Client
 
         // 创建重试中间件
         $stack = HandlerStack::create(new CurlHandler());
-        $stack->push(Middleware::retry(function (
-            $retries,
-            $req,
-            $rsp,
-            $error
-        ) use (
-            &$imgUrl,
-            &$config,
-            $username,
-            $password
-        ) {
+        $stack->push(Middleware::retry(function ($retries, $req, $rsp, $error) use (&$imgUrl, &$config) {
             $imgUrl = '';
             if ($rsp !== null) {
                 $statusCode = $rsp->getStatusCode();
@@ -559,7 +549,7 @@ class Client
             // 上传失败，进行重试判断，$retries 参数由 0 开始
             if ($retries === 0) {
                 // 进行非缓存登入
-                if (!$this->login($username, $password, false)) {
+                if (!$this->login($this->username, $this->password, false)) {
                     // 如果非缓存登入失败，抛出异常
                     throw new BadResponseException('登入失败，请检查用户名或密码是否正确');
                 }
